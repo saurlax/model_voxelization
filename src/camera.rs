@@ -3,6 +3,7 @@ use bevy::{
     prelude::*,
     window::PrimaryWindow,
 };
+use bevy_egui::EguiContext;
 
 #[derive(Component)]
 pub struct CameraController {
@@ -71,7 +72,20 @@ pub fn camera_controller_system(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut query: Query<(&mut Transform, &mut CameraController), With<Camera3d>>,
+    mut egui_context: Query<&mut EguiContext>,
 ) {
+    // https://docs.rs/bevy_egui/latest/bevy_egui/struct.EguiContext.html#method.get
+    // Check if UI is handling input
+    if let Ok(mut context) = egui_context.get_single_mut() {
+        // Get mutable reference
+        if context.get_mut().is_using_pointer() {
+            // Clear mouse events when UI is being used
+            mouse_motion.clear();
+            mouse_wheel.clear();
+            return;
+        }
+    }
+
     let _window = window_q.single();
 
     for (mut transform, mut controller) in query.iter_mut() {

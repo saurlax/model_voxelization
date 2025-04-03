@@ -25,9 +25,9 @@ fn main() {
         .init_resource::<ModelResource>()
         .init_resource::<VoxelizationSettings>()
         .add_systems(Startup, setup_camera)
-        .add_systems(
-            Update,
-            (ui_system, load_model_system, camera_controller_system),
-        )
+        // Ensure systems run in correct order
+        .add_systems(Update, ui_system)
+        .add_systems(Update, load_model_system)
+        .add_systems(Update, camera_controller_system)
         .run();
 }
