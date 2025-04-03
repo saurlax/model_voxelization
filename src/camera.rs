@@ -4,17 +4,15 @@ use bevy::{
     window::PrimaryWindow,
 };
 
-// 相机控制组件
 #[derive(Component)]
 pub struct CameraController {
     pub orbit_speed: f32,
     pub pan_speed: f32,
     pub zoom_speed: f32,
-    pub key_move_speed: f32, // 添加键盘移动速度控制
+    pub key_move_speed: f32,
     pub orbit_button: MouseButton,
     pub pan_button: MouseButton,
     pub distance: f32,
-    // 添加目标点来跟踪相机焦点
     pub target: Vec3,
 }
 
@@ -24,29 +22,28 @@ impl Default for CameraController {
             orbit_speed: 1.0,
             pan_speed: 1.0,
             zoom_speed: 1.0,
-            key_move_speed: 2.0, // 键盘移动速度
+            key_move_speed: 2.0,
             orbit_button: MouseButton::Left,
             pan_button: MouseButton::Right,
-            distance: 5.0,                    // 初始相机距离
-            target: Vec3::new(0.0, 0.5, 0.0), // 初始目标点
+            distance: 5.0,
+            target: Vec3::new(0.0, 0.5, 0.0),
         }
     }
 }
 
 pub fn setup_camera(mut commands: Commands) {
-    // 将相机设置为从上方俯视模型的位置
-    let target = Vec3::ZERO; // 目标点在原点
-    let distance = 3.0; // 适合-1~1坐标范围的距离
+    // Set up camera with top-down view
+    let target = Vec3::ZERO;
+    let distance = 3.0; // Suitable for -1~1 coordinate range
 
     let controller = CameraController {
         distance,
         target,
-        // 调整移动速度以适应小范围
-        key_move_speed: 0.5,
+        key_move_speed: 0.5, // Lower speed for small coordinate range
         ..default()
     };
 
-    // 从上方向下看的相机位置
+    // Position camera above and slightly to the side
     let position = Vec3::new(distance * 0.5, distance * 0.8, distance * 0.6);
 
     commands.spawn((
@@ -55,7 +52,7 @@ pub fn setup_camera(mut commands: Commands) {
         controller,
     ));
 
-    // 添加环境光，调整位置以更好地照亮模型
+    // Add directional light
     commands.spawn((
         DirectionalLight {
             illuminance: 12000.0,
@@ -71,86 +68,93 @@ pub fn camera_controller_system(
     mut mouse_motion: EventReader<MouseMotion>,
     mut mouse_wheel: EventReader<MouseWheel>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>, // 添加键盘输入
-    time: Res<Time>,                 // 添加时间资源以实现平滑移动
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
     mut query: Query<(&mut Transform, &mut CameraController), With<Camera3d>>,
 ) {
     let _window = window_q.single();
 
     for (mut transform, mut controller) in query.iter_mut() {
-        // 轨道旋转 (左键)
+        // Orbit rotation (left mouse button)
         if mouse_buttons.pressed(controller.orbit_button) {
             for ev in mouse_motion.read() {
                 let delta_x = ev.delta.x * controller.orbit_speed * 0.01;
                 let delta_y = ev.delta.y * controller.orbit_speed * 0.01;
 
-                // 获取从相机到目标的方向向量
+                // Get direction vector from camera to target
                 let look_dir = (controller.target - transform.translation).normalize();
 
-                // 计算相机的右向量和上向量
+                // Calculate right and up vectors
                 let right = look_dir.cross(Vec3::Y).normalize();
-                let up = right.cross(look_dir).normalize();
 
-                // 围绕目标点旋转
-                // 围绕Y轴旋转
+                // Rotate around target point
                 let rotation_y = Quat::from_axis_angle(Vec3::Y, -delta_x);
 
-                // 围绕右轴旋转
-                let rotation_x = Quat::from_axis_angle(right, -delta_y);
+                // Calculate current angle with vertical axis
+                let camera_to_target = transform.translation - controller.target;
+                let current_angle = Vec3::Y.angle_between(camera_to_target);
 
-                // 计算相机到目标的向量
+                // Limit vertical rotation to prevent extreme angles
+                // Allow rotation within 1° to 179° (almost full range but avoiding extremes)
+                let min_angle = 1.0f32.to_radians();
+                let max_angle = 179.0f32.to_radians();
+
+                // Calculate new angle after rotation
+                let new_angle = current_angle - delta_y;
+
+                // Apply vertical rotation only if it stays within limits
+                let rotation_x = if new_angle >= min_angle && new_angle <= max_angle {
+                    Quat::from_axis_angle(right, -delta_y)
+                } else {
+                    // Skip vertical rotation if it would exceed limits
+                    Quat::IDENTITY
+                };
+
                 let mut camera_to_target = transform.translation - controller.target;
 
-                // 应用旋转
+                // Apply rotation
                 camera_to_target = rotation_y * rotation_x * camera_to_target;
 
-                // 更新相机位置
+                // Update camera position
                 transform.translation = controller.target + camera_to_target;
 
-                // 保持相机朝向目标点
+                // Keep camera looking at target
                 transform.look_at(controller.target, Vec3::Y);
             }
         }
 
-        // 平移 (右键)
+        // Panning (right mouse button)
         if mouse_buttons.pressed(controller.pan_button) {
             for ev in mouse_motion.read() {
                 let delta_x = ev.delta.x * controller.pan_speed * 0.005;
                 let delta_y = ev.delta.y * controller.pan_speed * 0.005;
 
-                // 获取相机的右方向和上方向
                 let right = transform.right();
                 let up = transform.up();
 
-                // 计算平移向量
                 let translation = right * -delta_x + up * delta_y;
 
-                // 同时移动相机和目标点，保持相对关系
                 transform.translation += translation;
                 controller.target += translation;
             }
         }
 
-        // 缩放 (滚轮) - 修复方向问题
+        // Zoom (mouse wheel)
         for ev in mouse_wheel.read() {
-            // 改进缩放逻辑: 向上滚动(正值)应该缩小距离，向下滚动(负值)应该增加距离
             let zoom_amount = -ev.y * controller.zoom_speed * controller.distance * 0.1;
 
-            // 计算相机到目标的方向
             let direction = (transform.translation - controller.target).normalize();
 
-            // 更新距离，并设置最小值避免过度缩放
             controller.distance += zoom_amount;
             controller.distance = controller.distance.max(0.5);
 
-            // 根据新的距离和方向更新相机位置
             transform.translation = controller.target + direction * controller.distance;
         }
 
-        // 修改键盘控制
+        // Keyboard movement
         let mut keyboard_translation = Vec3::ZERO;
 
-        // 前后移动 (W/S)
+        // Forward/Backward (W/S)
         if keys.pressed(KeyCode::KeyW) {
             let forward = (controller.target - transform.translation).normalize();
             let horizontal_forward = Vec3::new(forward.x, 0.0, forward.z).normalize();
@@ -162,17 +166,15 @@ pub fn camera_controller_system(
             keyboard_translation -= horizontal_forward;
         }
 
-        // 上下移动 (Q/E)
+        // Up/Down (Q/E)
         if keys.pressed(KeyCode::KeyQ) {
-            // 向上移动 (Y轴正方向)
-            keyboard_translation.y += 1.0;
+            keyboard_translation.y += 1.0; // Move up
         }
         if keys.pressed(KeyCode::KeyE) {
-            // 向下移动 (Y轴负方向)
-            keyboard_translation.y -= 1.0;
+            keyboard_translation.y -= 1.0; // Move down
         }
 
-        // 左右移动 (A/D)
+        // Left/Right (A/D)
         if keys.pressed(KeyCode::KeyA) {
             let right = transform.right();
             let horizontal_right = Vec3::new(right.x, 0.0, right.z).normalize();
@@ -184,15 +186,13 @@ pub fn camera_controller_system(
             keyboard_translation += horizontal_right;
         }
 
-        // 应用键盘平移
+        // Apply keyboard translation
         if keyboard_translation != Vec3::ZERO {
-            // 归一化向量并应用速度和帧时间
             if keyboard_translation.length_squared() > 0.0 {
                 keyboard_translation = keyboard_translation.normalize();
             }
             let translation = keyboard_translation * controller.key_move_speed * time.delta_secs();
 
-            // 同时移动相机和目标点，保持相对关系
             transform.translation += translation;
             controller.target += translation;
         }

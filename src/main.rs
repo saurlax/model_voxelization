@@ -4,6 +4,7 @@ mod ui;
 mod voxelization;
 
 use bevy::prelude::*;
+use bevy::window::WindowPlugin;
 use bevy_egui::EguiPlugin;
 
 use camera::{camera_controller_system, setup_camera};
@@ -13,7 +14,13 @@ use voxelization::VoxelizationSettings;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Model Voxelization".to_string(),
+                ..default()
+            }),
+            ..default()
+        }))
         .add_plugins(EguiPlugin)
         .init_resource::<ModelResource>()
         .init_resource::<VoxelizationSettings>()

@@ -2,18 +2,17 @@ use crate::voxelization::{create_voxelized_mesh, VoxelizationSettings, COORDINAT
 use bevy::prelude::*;
 use std::path::PathBuf;
 
-// 为了能够查询包含Mesh的实体，添加组件标记
+// Component marker for mesh entities
 #[derive(Component)]
 pub struct ModelMesh;
 
-// 用于存储模型路径的资源
+// Resource for storing model path
 #[derive(Resource, Default)]
 pub struct ModelResource {
     pub path: Option<PathBuf>,
     pub loaded: bool,
 }
 
-// 加载与体素化模型
 pub fn load_model_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -24,12 +23,12 @@ pub fn load_model_system(
 ) {
     if let Some(path) = &model_resource.path.clone() {
         if !model_resource.loaded {
-            // 删除之前的模型
+            // Remove previous model
             for entity in model_query.iter() {
                 commands.entity(entity).despawn_recursive();
             }
 
-            // 加载模型
+            // Load model
             if let Ok(loaded_obj) = tobj::load_obj(
                 path,
                 &tobj::LoadOptions {
@@ -39,7 +38,7 @@ pub fn load_model_system(
             ) {
                 let (mut models, _materials_maybe) = loaded_obj;
 
-                // 首先计算所有子模型的整体包围盒
+                // Calculate overall bounding box
                 let mut min_x = f32::MAX;
                 let mut min_y = f32::MAX;
                 let mut min_z = f32::MAX;
@@ -47,7 +46,7 @@ pub fn load_model_system(
                 let mut max_y = f32::MIN;
                 let mut max_z = f32::MIN;
 
-                // 遍历所有子模型，找出整体的包围盒
+                // Process all submodels
                 for model in &models {
                     let positions = &model.mesh.positions;
 
@@ -65,19 +64,19 @@ pub fn load_model_system(
                     }
                 }
 
-                // 计算整个模型的中心点
+                // Calculate model center
                 let center_x = (min_x + max_x) / 2.0;
                 let center_y = (min_y + max_y) / 2.0;
                 let center_z = (min_z + max_z) / 2.0;
 
-                // 计算模型的整体尺寸
+                // Calculate model dimensions
                 let size_x = max_x - min_x;
                 let size_y = max_y - min_y;
                 let size_z = max_z - min_z;
                 let max_dimension = size_x.max(size_y.max(size_z));
 
-                // 计算统一的缩放因子，将模型缩放到-1~1范围内
-                let world_size = COORDINATE_RANGE * 2.0 * 0.95; // 留出边缘，使用-0.95~0.95实际范围
+                // Calculate scaling factor to fit model in -1~1 range
+                let world_size = COORDINATE_RANGE * 2.0 * 0.95; // Use -0.95~0.95 actual range
                 let scale_factor = if max_dimension > 0.0 {
                     world_size / max_dimension
                 } else {
@@ -85,41 +84,39 @@ pub fn load_model_system(
                 };
 
                 println!(
-                    "整体模型信息: 尺寸 [{:.2}, {:.2}, {:.2}], 最大尺寸 {:.2}, 中心点 [{:.2}, {:.2}, {:.2}], 缩放因子 {:.4}",
+                    "Model info: dimensions [{:.2}, {:.2}, {:.2}], max size {:.2}, center [{:.2}, {:.2}, {:.2}], scale factor {:.4}",
                     size_x, size_y, size_z, max_dimension, center_x, center_y, center_z, scale_factor
                 );
 
-                // 直接对所有模型的顶点进行变换
+                // Transform all vertices
                 for model in &mut models {
                     let positions = &mut model.mesh.positions;
 
-                    // 对每个顶点应用缩放和平移
+                    // Center and scale each vertex
                     for i in 0..positions.len() / 3 {
                         let x_idx = i * 3;
                         let y_idx = i * 3 + 1;
                         let z_idx = i * 3 + 2;
 
-                        // 应用变换：居中并缩放
                         positions[x_idx] = (positions[x_idx] - center_x) * scale_factor;
                         positions[y_idx] = (positions[y_idx] - center_y) * scale_factor;
                         positions[z_idx] = (positions[z_idx] - center_z) * scale_factor;
                     }
                 }
 
-                // 使用变换后的模型进行体素化
+                // Voxelize each transformed model
                 for model in models {
-                    // 创建网格 - 使用八叉树深度而不是分辨率
                     let mesh = create_voxelized_mesh(&model, voxel_settings.octree_depth);
                     let mesh_handle = meshes.add(mesh);
 
-                    // 创建材质
+                    // Create material
                     let material_handle = materials.add(StandardMaterial {
                         base_color: Color::srgb(0.8, 0.7, 0.6),
                         perceptual_roughness: 0.9,
                         ..default()
                     });
 
-                    // 生成模型实体
+                    // Spawn model entity
                     commands.spawn((
                         Mesh3d(mesh_handle),
                         MeshMaterial3d(material_handle),

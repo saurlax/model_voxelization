@@ -9,44 +9,42 @@ use std::collections::HashSet;
 
 #[derive(Resource)]
 pub struct VoxelizationSettings {
-    pub octree_depth: usize, // 八叉树深度
+    pub octree_depth: usize,
 }
 
 impl Default for VoxelizationSettings {
     fn default() -> Self {
         Self {
-            octree_depth: 6,  // 默认八叉树深度为6
+            octree_depth: 6, // Default octree depth
         }
     }
 }
 
 impl VoxelizationSettings {
-    // 根据八叉树深度计算体素大小
     pub fn voxel_size(&self) -> f32 {
-        // 坐标范围(-1~1)的宽度为2，除以2^深度
+        // Calculate voxel size from octree depth (range -1~1, width=2)
         2.0 / (1 << self.octree_depth) as f32
     }
 }
 
-// 体素化坐标，用于HashSet去重
+// Voxel coordinate for HashSet
 #[derive(Hash, Eq, PartialEq, Clone, Copy)]
 struct VoxelCoord(i32, i32, i32);
 
-// 坐标空间范围，从-1到1
+// Coordinate range from -1 to 1
 pub const COORDINATE_RANGE: f32 = 1.0;
 
-// 修改体素化函数，使用计算的体素大小
 pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
-    // 计算体素大小
+    // Calculate voxel size
     let voxel_size = 2.0 / (1 << octree_depth) as f32;
-    
+
     let positions = &model.mesh.positions;
     let indices = &model.mesh.indices;
 
-    // 创建体素网格 (使用HashSet以支持高效查找)
+    // Create voxel grid using HashSet for efficient lookups
     let mut filled_voxels = HashSet::new();
 
-    // 遍历所有三角形，进行体素化
+    // Process all triangles for voxelization
     for i in 0..indices.len() / 3 {
         let idx1 = indices[i * 3] as usize;
         let idx2 = indices[i * 3 + 1] as usize;
@@ -68,62 +66,64 @@ pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
             positions[idx3 * 3 + 2],
         );
 
-        // 直接使用顶点坐标进行体素化，因为已经变换过了
         voxelize_triangle(p1, p2, p3, voxel_size, &mut filled_voxels);
     }
 
-    println!("体素化完成，使用深度 {}, 体素大小 {:.6}, 共生成 {} 个体素", 
-             octree_depth, voxel_size, filled_voxels.len());
+    println!(
+        "Voxelization complete: depth {}, voxel size {:.6}, generated {} voxels",
+        octree_depth,
+        voxel_size,
+        filled_voxels.len()
+    );
 
-    // 创建体素化网格
+    // Create voxelized mesh
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::RENDER_WORLD,
     );
-    let cube_size = voxel_size * 0.95; // 稍微缩小，留出缝隙效果
+    let cube_size = voxel_size;
 
     let mut vertices = Vec::new();
     let mut normals = Vec::new();
     let mut uvs = Vec::new();
     let mut mesh_indices = Vec::new();
 
-    // 渲染体素网格
+    // Render visible voxel faces
     for voxel_coord in &filled_voxels {
-        // 计算体素在世界空间中的中心位置
+        // Calculate voxel center position
         let voxel_center = Vec3::new(
             voxel_coord.0 as f32 * voxel_size,
             voxel_coord.1 as f32 * voxel_size,
             voxel_coord.2 as f32 * voxel_size,
         );
 
-        // 检查哪些面是可见的（相邻体素不存在的面）
+        // Check which faces are visible (no adjacent voxels)
         let neighbors = [
-            VoxelCoord(voxel_coord.0 + 1, voxel_coord.1, voxel_coord.2), // 右
-            VoxelCoord(voxel_coord.0 - 1, voxel_coord.1, voxel_coord.2), // 左
-            VoxelCoord(voxel_coord.0, voxel_coord.1 + 1, voxel_coord.2), // 上
-            VoxelCoord(voxel_coord.0, voxel_coord.1 - 1, voxel_coord.2), // 下
-            VoxelCoord(voxel_coord.0, voxel_coord.1, voxel_coord.2 + 1), // 前
-            VoxelCoord(voxel_coord.0, voxel_coord.1, voxel_coord.2 - 1), // 后
+            VoxelCoord(voxel_coord.0 + 1, voxel_coord.1, voxel_coord.2), // right
+            VoxelCoord(voxel_coord.0 - 1, voxel_coord.1, voxel_coord.2), // left
+            VoxelCoord(voxel_coord.0, voxel_coord.1 + 1, voxel_coord.2), // top
+            VoxelCoord(voxel_coord.0, voxel_coord.1 - 1, voxel_coord.2), // bottom
+            VoxelCoord(voxel_coord.0, voxel_coord.1, voxel_coord.2 + 1), // front
+            VoxelCoord(voxel_coord.0, voxel_coord.1, voxel_coord.2 - 1), // back
         ];
 
         let half = cube_size / 2.0;
 
-        // 立方体的8个顶点
+        // Define the 8 corners of the cube
         let corners = [
-            voxel_center + Vec3::new(-half, -half, -half), // 0: 左下后
-            voxel_center + Vec3::new(half, -half, -half),  // 1: 右下后
-            voxel_center + Vec3::new(half, -half, half),   // 2: 右下前
-            voxel_center + Vec3::new(-half, -half, half),  // 3: 左下前
-            voxel_center + Vec3::new(-half, half, -half),  // 4: 左上后
-            voxel_center + Vec3::new(half, half, -half),   // 5: 右上后
-            voxel_center + Vec3::new(half, half, half),    // 6: 右上前
-            voxel_center + Vec3::new(-half, half, half),   // 7: 左上前
+            voxel_center + Vec3::new(-half, -half, -half), // 0: back bottom left
+            voxel_center + Vec3::new(half, -half, -half),  // 1: back bottom right
+            voxel_center + Vec3::new(half, -half, half),   // 2: front bottom right
+            voxel_center + Vec3::new(-half, -half, half),  // 3: front bottom left
+            voxel_center + Vec3::new(-half, half, -half),  // 4: back top left
+            voxel_center + Vec3::new(half, half, -half),   // 5: back top right
+            voxel_center + Vec3::new(half, half, half),    // 6: front top right
+            voxel_center + Vec3::new(-half, half, half),   // 7: front top left
         ];
 
-        // 只为可见面添加几何体
+        // Only add geometry for visible faces
         for (i, neighbor) in neighbors.iter().enumerate() {
             if !filled_voxels.contains(neighbor) {
-                // 根据面的索引添加面
                 match i {
                     0 => add_cube_face(
                         &mut vertices,
@@ -133,7 +133,7 @@ pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
                         &corners,
                         [1, 2, 6, 5],
                         [1.0, 0.0, 0.0],
-                    ), // 右面
+                    ), // right face
                     1 => add_cube_face(
                         &mut vertices,
                         &mut normals,
@@ -142,7 +142,7 @@ pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
                         &corners,
                         [0, 4, 7, 3],
                         [-1.0, 0.0, 0.0],
-                    ), // 左面
+                    ), // left face
                     2 => add_cube_face(
                         &mut vertices,
                         &mut normals,
@@ -151,7 +151,7 @@ pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
                         &corners,
                         [4, 5, 6, 7],
                         [0.0, 1.0, 0.0],
-                    ), // 上面
+                    ), // top face
                     3 => add_cube_face(
                         &mut vertices,
                         &mut normals,
@@ -160,7 +160,7 @@ pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
                         &corners,
                         [0, 3, 2, 1],
                         [0.0, -1.0, 0.0],
-                    ), // 下面
+                    ), // bottom face
                     4 => add_cube_face(
                         &mut vertices,
                         &mut normals,
@@ -169,7 +169,7 @@ pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
                         &corners,
                         [3, 7, 6, 2],
                         [0.0, 0.0, 1.0],
-                    ), // 前面
+                    ), // front face
                     5 => add_cube_face(
                         &mut vertices,
                         &mut normals,
@@ -178,7 +178,7 @@ pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
                         &corners,
                         [0, 1, 5, 4],
                         [0.0, 0.0, -1.0],
-                    ), // 后面
+                    ), // back face
                     _ => {}
                 }
             }
@@ -193,7 +193,7 @@ pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
     mesh
 }
 
-// 添加立方体的一个面
+// Add a face to the cube
 fn add_cube_face(
     vertices: &mut Vec<[f32; 3]>,
     normals: &mut Vec<[f32; 3]>,
@@ -205,19 +205,19 @@ fn add_cube_face(
 ) {
     let start_idx = vertices.len() as u32;
 
-    // 添加四个顶点
+    // Add four vertices
     for &idx in &face_indices {
         vertices.push([corners[idx].x, corners[idx].y, corners[idx].z]);
         normals.push(normal);
     }
 
-    // 添加UV坐标
+    // Add UV coordinates
     uvs.push([0.0, 0.0]);
     uvs.push([1.0, 0.0]);
     uvs.push([1.0, 1.0]);
     uvs.push([0.0, 1.0]);
 
-    // 添加两个三角形的索引
+    // Add two triangles
     indices.push(start_idx);
     indices.push(start_idx + 2);
     indices.push(start_idx + 1);
@@ -227,7 +227,7 @@ fn add_cube_face(
     indices.push(start_idx + 2);
 }
 
-// 简化的三角形体素化 - 使用体素坐标系统
+// Triangle voxelization using voxel grid
 fn voxelize_triangle(
     p1: Vec3,
     p2: Vec3,
@@ -235,7 +235,7 @@ fn voxelize_triangle(
     voxel_size: f32,
     filled_voxels: &mut HashSet<VoxelCoord>,
 ) {
-    // 计算三角形的边界框
+    // Calculate triangle bounding box
     let bb_min_x = p1.x.min(p2.x.min(p3.x));
     let bb_min_y = p1.y.min(p2.y.min(p3.y));
     let bb_min_z = p1.z.min(p2.z.min(p3.z));
@@ -244,7 +244,7 @@ fn voxelize_triangle(
     let bb_max_y = p1.y.max(p2.y.max(p3.y));
     let bb_max_z = p1.z.max(p2.z.max(p3.z));
 
-    // 将边界框转换为体素坐标
+    // Convert to voxel coordinates
     let min_voxel_x = (bb_min_x / voxel_size).floor() as i32;
     let min_voxel_y = (bb_min_y / voxel_size).floor() as i32;
     let min_voxel_z = (bb_min_z / voxel_size).floor() as i32;
@@ -253,8 +253,7 @@ fn voxelize_triangle(
     let max_voxel_y = (bb_max_y / voxel_size).ceil() as i32;
     let max_voxel_z = (bb_max_z / voxel_size).ceil() as i32;
 
-    // 限制体素坐标在合理范围内
-    // 使用坐标范围和体素大小计算最大索引
+    // Clamp coordinates to valid range
     let max_idx = (COORDINATE_RANGE / voxel_size) as i32;
     let min_idx = -max_idx;
 
@@ -266,12 +265,12 @@ fn voxelize_triangle(
     let max_voxel_y = max_voxel_y.min(max_idx);
     let max_voxel_z = max_voxel_z.min(max_idx);
 
-    // 计算三角形的法线
+    // Calculate triangle normal
     let edge1 = p2 - p1;
     let edge2 = p3 - p1;
     let normal = edge1.cross(edge2).normalize();
 
-    // 遍历边界框中的所有体素
+    // Iterate through all voxels in the bounding box
     for x in min_voxel_x..=max_voxel_x {
         for y in min_voxel_y..=max_voxel_y {
             for z in min_voxel_z..=max_voxel_z {
@@ -281,12 +280,12 @@ fn voxelize_triangle(
                     (z as f32 + 0.5) * voxel_size,
                 );
 
-                // 判断体素与三角形是否相交
-                // 这里使用简化的方法：检查体素中心到三角形平面的距离是否小于体素半径
+                // Check if voxel intersects with triangle
+                // Simplified method: check if distance from voxel center to triangle plane is less than voxel radius
                 let dist_to_plane = (voxel_center - p1).dot(normal).abs();
 
                 if dist_to_plane <= voxel_size * 0.87 {
-                    // sqrt(3)/2 约等于 0.87
+                    // sqrt(3)/2 ≈ 0.87
                     filled_voxels.insert(VoxelCoord(x, y, z));
                 }
             }
