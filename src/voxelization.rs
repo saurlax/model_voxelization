@@ -9,12 +9,22 @@ use std::collections::HashSet;
 
 #[derive(Resource)]
 pub struct VoxelizationSettings {
-    pub resolution: f32, // 体素大小
+    pub octree_depth: usize, // 八叉树深度
 }
 
 impl Default for VoxelizationSettings {
     fn default() -> Self {
-        Self { resolution: 1.0 } // 默认分辨率设为1.0
+        Self {
+            octree_depth: 6,  // 默认八叉树深度为6
+        }
+    }
+}
+
+impl VoxelizationSettings {
+    // 根据八叉树深度计算体素大小
+    pub fn voxel_size(&self) -> f32 {
+        // 坐标范围(-1~1)的宽度为2，除以2^深度
+        2.0 / (1 << self.octree_depth) as f32
     }
 }
 
@@ -22,12 +32,14 @@ impl Default for VoxelizationSettings {
 #[derive(Hash, Eq, PartialEq, Clone, Copy)]
 struct VoxelCoord(i32, i32, i32);
 
-// 八叉树的最大深度和边界
-const MAX_DEPTH: usize = 6; // 最大深度
-pub const GRID_SIZE: i32 = 64; // 总网格大小 (-32 ~ 32)
+// 坐标空间范围，从-1到1
+pub const COORDINATE_RANGE: f32 = 1.0;
 
-// 简化后的体素化函数，不再需要额外的变换参数
-pub fn create_voxelized_mesh(model: &tobj::Model, voxel_size: f32) -> Mesh {
+// 修改体素化函数，使用计算的体素大小
+pub fn create_voxelized_mesh(model: &tobj::Model, octree_depth: usize) -> Mesh {
+    // 计算体素大小
+    let voxel_size = 2.0 / (1 << octree_depth) as f32;
+    
     let positions = &model.mesh.positions;
     let indices = &model.mesh.indices;
 
@@ -60,7 +72,8 @@ pub fn create_voxelized_mesh(model: &tobj::Model, voxel_size: f32) -> Mesh {
         voxelize_triangle(p1, p2, p3, voxel_size, &mut filled_voxels);
     }
 
-    println!("体素化完成，共生成 {} 个体素", filled_voxels.len());
+    println!("体素化完成，使用深度 {}, 体素大小 {:.6}, 共生成 {} 个体素", 
+             octree_depth, voxel_size, filled_voxels.len());
 
     // 创建体素化网格
     let mut mesh = Mesh::new(
@@ -240,17 +253,18 @@ fn voxelize_triangle(
     let max_voxel_y = (bb_max_y / voxel_size).ceil() as i32;
     let max_voxel_z = (bb_max_z / voxel_size).ceil() as i32;
 
-    // 限制体素坐标在 -32 ~ 32 范围内
-    let min_bound = -(GRID_SIZE / 2);
-    let max_bound = GRID_SIZE / 2 - 1;
+    // 限制体素坐标在合理范围内
+    // 使用坐标范围和体素大小计算最大索引
+    let max_idx = (COORDINATE_RANGE / voxel_size) as i32;
+    let min_idx = -max_idx;
 
-    let min_voxel_x = min_voxel_x.max(min_bound);
-    let min_voxel_y = min_voxel_y.max(min_bound);
-    let min_voxel_z = min_voxel_z.max(min_bound);
+    let min_voxel_x = min_voxel_x.max(min_idx);
+    let min_voxel_y = min_voxel_y.max(min_idx);
+    let min_voxel_z = min_voxel_z.max(min_idx);
 
-    let max_voxel_x = max_voxel_x.min(max_bound);
-    let max_voxel_y = max_voxel_y.min(max_bound);
-    let max_voxel_z = max_voxel_z.min(max_bound);
+    let max_voxel_x = max_voxel_x.min(max_idx);
+    let max_voxel_y = max_voxel_y.min(max_idx);
+    let max_voxel_z = max_voxel_z.min(max_idx);
 
     // 计算三角形的法线
     let edge1 = p2 - p1;

@@ -36,13 +36,13 @@ impl Default for CameraController {
 pub fn setup_camera(mut commands: Commands) {
     // 将相机设置为从上方俯视模型的位置
     let target = Vec3::ZERO; // 目标点在原点
-    let distance = 48.0; // 足够的距离以查看整个体素空间(-32~32)
+    let distance = 3.0; // 适合-1~1坐标范围的距离
 
     let controller = CameraController {
         distance,
         target,
-        // 增加键盘移动速度，方便快速浏览
-        key_move_speed: 5.0,
+        // 调整移动速度以适应小范围
+        key_move_speed: 0.5,
         ..default()
     };
 
@@ -62,7 +62,7 @@ pub fn setup_camera(mut commands: Commands) {
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(20.0, 40.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(1.0, 2.0, 0.5).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
 

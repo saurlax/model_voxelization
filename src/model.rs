@@ -1,4 +1,4 @@
-use crate::voxelization::{create_voxelized_mesh, VoxelizationSettings, GRID_SIZE};
+use crate::voxelization::{create_voxelized_mesh, VoxelizationSettings, COORDINATE_RANGE};
 use bevy::prelude::*;
 use std::path::PathBuf;
 
@@ -76,8 +76,8 @@ pub fn load_model_system(
                 let size_z = max_z - min_z;
                 let max_dimension = size_x.max(size_y.max(size_z));
 
-                // 计算统一的缩放因子
-                let world_size = GRID_SIZE as f32 - 2.0; // 留出边界，实际使用 -31 ~ 31
+                // 计算统一的缩放因子，将模型缩放到-1~1范围内
+                let world_size = COORDINATE_RANGE * 2.0 * 0.95; // 留出边缘，使用-0.95~0.95实际范围
                 let scale_factor = if max_dimension > 0.0 {
                     world_size / max_dimension
                 } else {
@@ -108,8 +108,8 @@ pub fn load_model_system(
 
                 // 使用变换后的模型进行体素化
                 for model in models {
-                    // 创建网格 - 直接使用已变换的模型
-                    let mesh = create_voxelized_mesh(&model, voxel_settings.resolution);
+                    // 创建网格 - 使用八叉树深度而不是分辨率
+                    let mesh = create_voxelized_mesh(&model, voxel_settings.octree_depth);
                     let mesh_handle = meshes.add(mesh);
 
                     // 创建材质
